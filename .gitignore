@@ -80,6 +80,10 @@ backend/storage/documents/*
 *.sqlite
 *.sqlite3
 
+# ChromaDB data
+chroma_data/
+backend/chroma_data/
+
 # Logs
 logs/
 *.log

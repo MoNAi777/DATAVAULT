@@ -8,11 +8,8 @@ import os
 from config.settings import settings
 from app.core.database import create_tables
 from app.api.messages import router as messages_router
-from app.services.telegram_service import TelegramService
-
-
-# Global telegram service instance
-telegram_service = None
+from app.api.whatsapp import router as whatsapp_router
+# Telegram service removed - now runs as standalone service
 
 
 @asynccontextmanager
@@ -32,8 +29,8 @@ async def lifespan(app: FastAPI):
     os.makedirs("storage/documents", exist_ok=True)
     print("✅ Storage directories created")
     
-    # Telegram bot now runs as a separate service
-    print("ℹ️ Telegram bot runs as a separate service")
+    # Telegram bot runs as a separate Docker service
+    print("ℹ️ Telegram bot runs as a separate Docker service")
     
     print("🎉 DataVault started successfully!")
     
@@ -62,6 +59,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(messages_router, prefix="/api")
+app.include_router(whatsapp_router)
 
 # Serve static files
 if os.path.exists("storage"):
@@ -81,47 +79,76 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with actual service status"""
+    import httpx
+    from sqlalchemy import text
+    from app.core.database import get_db
+    
+    services_status = {
+        "api": "running",
+        "telegram_bot": "separate_docker_service",
+        "database": "unknown",
+        "vector_db": "unknown",
+        "redis": "unknown"
+    }
+    
+    # Check database
+    try:
+        db = next(get_db())
+        db.execute(text("SELECT 1"))
+        services_status["database"] = "connected"
+        db.close()
+    except Exception as e:
+        services_status["database"] = f"error: {str(e)[:50]}"
+    
+    # Check ChromaDB
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"http://{settings.chroma_host}:{settings.chroma_port}/api/v2/heartbeat", timeout=5)
+            if response.status_code == 200:
+                services_status["vector_db"] = "connected"
+            else:
+                services_status["vector_db"] = f"status_{response.status_code}"
+    except Exception as e:
+        services_status["vector_db"] = f"error: {str(e)[:50]}"
+    
+    # Check Redis
+    try:
+        import redis
+        r = redis.from_url(settings.redis_url)
+        r.ping()
+        services_status["redis"] = "connected"
+    except Exception as e:
+        services_status["redis"] = f"error: {str(e)[:50]}"
+    
     return {
         "status": "healthy",
         "version": settings.app_version,
-        "services": {
-            "api": "running",
-            "telegram_bot": "separate_service",
-            "database": "connected",  # TODO: Add actual database health check
-            "vector_db": "connected"  # TODO: Add ChromaDB health check
-        }
+        "services": services_status
     }
 
-
-@app.post("/api/telegram/webhook")
-async def telegram_webhook(update_data: dict):
-    """Telegram webhook endpoint (alternative to polling)"""
-    if telegram_service:
-        await telegram_service.process_update(update_data)
-    return {"status": "ok"}
 
 @app.post("/api/telegram/test")
 async def test_telegram_message(content: str, sender_name: str = "Test User"):
     """Test endpoint to simulate Telegram messages"""
-    if telegram_service:
-        from app.schemas.message import MessageCreate
-        from datetime import datetime
-        
-        message_data = MessageCreate(
-            content=content,
-            source_type="telegram",
-            source_chat_id="test_chat",
-            source_message_id="test_msg",
-            sender_name=sender_name,
-            sender_id="test_user",
-            timestamp=datetime.utcnow(),
-            message_type="text"
-        )
-        
-        result = await telegram_service.message_service.create_message(message_data)
-        return {"status": "success", "message_id": result.id if result else None}
-    return {"status": "error", "message": "Telegram service not available"}
+    from app.services.message_service import MessageService
+    from app.schemas.message import MessageCreate
+    from datetime import datetime
+    
+    message_service = MessageService()
+    message_data = MessageCreate(
+        content=content,
+        source_type="telegram",
+        source_chat_id="test_chat",
+        source_message_id="test_msg",
+        sender_name=sender_name,
+        sender_id="test_user",
+        timestamp=datetime.utcnow(),
+        message_type="text"
+    )
+    
+    result = await message_service.create_message(message_data)
+    return {"status": "success", "message_id": result.id if result else None}
 
 
 if __name__ == "__main__":

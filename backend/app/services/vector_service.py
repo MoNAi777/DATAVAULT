@@ -2,27 +2,60 @@ import chromadb
 from typing import List, Dict, Any, Optional
 from config.settings import settings
 import uuid
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 class VectorService:
     def __init__(self):
-        self.client = chromadb.HttpClient(
-            host=settings.chroma_host,
-            port=settings.chroma_port
-        )
+        self.client = None
         self.collection_name = settings.chroma_collection_name
         self.collection = None
+        self._initialize_client()
         self._initialize_collection()
+    
+    def _initialize_client(self):
+        """Initialize ChromaDB client with proper error handling"""
+        try:
+            logger.info(f"Connecting to ChromaDB at {settings.chroma_host}:{settings.chroma_port}")
+            # Try to create the client
+            self.client = chromadb.HttpClient(
+                host=settings.chroma_host,
+                port=settings.chroma_port,
+                ssl=False  # Explicitly set SSL to False for HTTP connections
+            )
+            
+            # Test the connection by trying to heartbeat
+            try:
+                self.client.heartbeat()
+                logger.info("ChromaDB client initialized successfully")
+            except Exception as heartbeat_error:
+                logger.warning(f"ChromaDB heartbeat failed: {heartbeat_error}")
+                # Don't fail initialization, as heartbeat might not be available
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize ChromaDB client: {e}")
+            self.client = None
     
     def _initialize_collection(self):
         """Initialize or get the ChromaDB collection"""
+        if not self.client:
+            logger.warning("ChromaDB client not available")
+            self.collection = None
+            return
+            
         try:
+            # In ChromaDB 1.0+, use get_or_create_collection
             self.collection = self.client.get_or_create_collection(
                 name=self.collection_name,
                 metadata={"description": "DataVault message embeddings"}
             )
+            logger.info(f"Collection '{self.collection_name}' initialized successfully")
         except Exception as e:
-            print(f"ChromaDB connection error: {e}")
+            logger.error(f"ChromaDB collection initialization error: {e}")
             self.collection = None
     
     async def add_message_embedding(
@@ -34,17 +67,28 @@ class VectorService:
     ) -> Optional[str]:
         """Add message embedding to vector database"""
         if not self.collection or not embedding:
+            logger.warning("Collection not available or embedding is empty")
             return None
         
         try:
             doc_id = f"msg_{message_id}_{uuid.uuid4().hex[:8]}"
             
-            # Prepare metadata
+            # Prepare metadata - ensure all values are JSON serializable
             meta = {
-                "message_id": message_id,
+                "message_id": str(message_id),
                 "content_preview": content[:200],
-                **(metadata or {})
             }
+            
+            # Add metadata if provided, ensuring values are serializable
+            if metadata:
+                for key, value in metadata.items():
+                    if isinstance(value, (str, int, float, bool)):
+                        meta[key] = value
+                    elif isinstance(value, list):
+                        # Convert list to string representation for ChromaDB
+                        meta[key] = str(value)
+                    else:
+                        meta[key] = str(value)
             
             self.collection.add(
                 documents=[content],
@@ -53,10 +97,11 @@ class VectorService:
                 ids=[doc_id]
             )
             
+            logger.debug(f"Added embedding with ID: {doc_id}")
             return doc_id
             
         except Exception as e:
-            print(f"Error adding embedding: {e}")
+            logger.error(f"Error adding embedding: {e}")
             return None
     
     async def search_similar_messages(
@@ -67,52 +112,68 @@ class VectorService:
     ) -> List[Dict[str, Any]]:
         """Search for similar messages using vector similarity"""
         if not self.collection or not query_embedding:
+            logger.warning("Collection not available or query embedding is empty")
             return []
         
         try:
-            # Build where clause for filtering
-            where_clause = {}
+            # Build where clause for filtering - ChromaDB 1.0+ syntax
+            where_clause = None
             if filters:
+                where_clause = {}
                 if filters.get('categories'):
-                    where_clause['categories'] = {"$in": filters['categories']}
+                    # Convert list to string for filtering since we store it as string
+                    categories_str = str(filters['categories'])
+                    where_clause['categories'] = {"$contains": categories_str}
                 if filters.get('message_type'):
                     where_clause['message_type'] = filters['message_type']
                 if filters.get('date_from'):
                     where_clause['timestamp'] = {"$gte": filters['date_from'].isoformat()}
             
+            logger.debug(f"Searching with query embedding of length {len(query_embedding)}, limit {limit}")
+            
             results = self.collection.query(
                 query_embeddings=[query_embedding],
                 n_results=limit,
-                where=where_clause if where_clause else None
+                where=where_clause if where_clause else None,
+                include=['documents', 'metadatas', 'distances']  # Explicitly specify what to include
             )
             
-            # Format results
+            # Format results - handle ChromaDB 1.0+ result structure
             formatted_results = []
-            if results['documents']:
-                for i, doc in enumerate(results['documents'][0]):
-                    formatted_results.append({
-                        'id': results['ids'][0][i],
+            if results and 'documents' in results and results['documents']:
+                documents = results['documents'][0] if results['documents'] else []
+                metadatas = results['metadatas'][0] if results.get('metadatas') else []
+                distances = results['distances'][0] if results.get('distances') else []
+                ids = results['ids'][0] if results.get('ids') else []
+                
+                for i, doc in enumerate(documents):
+                    result_item = {
+                        'id': ids[i] if i < len(ids) else f"unknown_{i}",
                         'content': doc,
-                        'metadata': results['metadatas'][0][i],
-                        'distance': results['distances'][0][i] if results.get('distances') else None
-                    })
+                        'metadata': metadatas[i] if i < len(metadatas) else {},
+                        'distance': distances[i] if i < len(distances) else None
+                    }
+                    formatted_results.append(result_item)
             
+            logger.debug(f"Found {len(formatted_results)} results")
             return formatted_results
             
         except Exception as e:
-            print(f"Vector search error: {e}")
+            logger.error(f"Vector search error: {e}")
             return []
     
     async def delete_message_embedding(self, doc_id: str) -> bool:
         """Delete message embedding from vector database"""
         if not self.collection:
+            logger.warning("Collection not available for deletion")
             return False
         
         try:
             self.collection.delete(ids=[doc_id])
+            logger.debug(f"Deleted embedding with ID: {doc_id}")
             return True
         except Exception as e:
-            print(f"Error deleting embedding: {e}")
+            logger.error(f"Error deleting embedding: {e}")
             return False
     
     async def update_message_embedding(
@@ -124,6 +185,7 @@ class VectorService:
     ) -> bool:
         """Update message embedding in vector database"""
         if not self.collection:
+            logger.warning("Collection not available for update")
             return False
         
         try:
@@ -131,16 +193,20 @@ class VectorService:
             self.collection.delete(ids=[doc_id])
             
             if embedding and content:
+                # Prepare metadata
+                meta = metadata or {}
+                
                 self.collection.add(
                     documents=[content],
                     embeddings=[embedding],
-                    metadatas=[metadata or {}],
+                    metadatas=[meta],
                     ids=[doc_id]
                 )
             
+            logger.debug(f"Updated embedding with ID: {doc_id}")
             return True
         except Exception as e:
-            print(f"Error updating embedding: {e}")
+            logger.error(f"Error updating embedding: {e}")
             return False
     
     async def get_collection_stats(self) -> Dict[str, Any]:
@@ -150,12 +216,14 @@ class VectorService:
         
         try:
             count = self.collection.count()
+            logger.debug(f"Collection has {count} embeddings")
             return {
                 "total_embeddings": count,
-                "collection_name": self.collection_name
+                "collection_name": self.collection_name,
+                "status": "connected"
             }
         except Exception as e:
-            print(f"Error getting stats: {e}")
+            logger.error(f"Error getting collection stats: {e}")
             return {"error": str(e)}
     
     async def hybrid_search(

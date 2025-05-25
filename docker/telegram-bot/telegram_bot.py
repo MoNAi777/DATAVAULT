@@ -92,7 +92,11 @@ class DataVaultTelegramBot:
             # Start the application and run polling
             async with self.application:
                 await self.application.start()
-                await self.application.updater.start_polling(drop_pending_updates=True)
+                # Drop ALL pending updates to avoid processing old messages
+                await self.application.updater.start_polling(
+                    drop_pending_updates=True,
+                    allowed_updates=["message", "edited_message", "channel_post", "edited_channel_post"]
+                )
                 
                 # Keep running until interrupted
                 try:
@@ -240,30 +244,47 @@ Keep sending messages to build your knowledge base!
     async def handle_photo_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle photo messages with improved content extraction"""
         try:
+            # Skip old messages (older than 60 seconds)
+            from datetime import datetime, timezone
+            message_age = (datetime.now(timezone.utc) - update.message.date).total_seconds()
+            if message_age > 60:
+                logger.warning(f"Skipping old photo message ({message_age:.0f} seconds old)")
+                return
             photo = update.message.photo[-1]  # Get highest resolution
             file_info = await context.bot.get_file(photo.file_id)
             
             # Download and save file
             file_path = await self.download_file(file_info, "photos", "jpg")
             
-            # Extract content from various sources
+            # Extract content - simplified approach
             content = ""
             
-            # Try different ways to get the text content
+            # Primary: Check for caption
             if update.message.caption:
                 content = update.message.caption
                 logger.info(f"Found caption: {content[:100]}...")
-            elif hasattr(update.message, 'text') and update.message.text:
-                content = update.message.text
-                logger.info(f"Found text: {content[:100]}...")
-            elif update.message.forward_origin:
-                # Handle forwarded messages
-                if hasattr(update.message.forward_origin, 'sender_user'):
-                    content = f"Forwarded from {update.message.forward_origin.sender_user.full_name}"
-                logger.info("Found forwarded message")
+            
+            # Secondary: Check if it's a forwarded message using safer approach
+            try:
+                # Try to check for forward_from (older API)
+                if hasattr(update.message, 'forward_from') and update.message.forward_from:
+                    if content:
+                        content += f"\n[Forwarded from {update.message.forward_from.full_name}]"
+                    else:
+                        content = f"Forwarded from {update.message.forward_from.full_name}"
+                    logger.info("Found forwarded message (legacy format)")
+                # Try to check for forward_sender_name (newer API)
+                elif hasattr(update.message, 'forward_sender_name') and update.message.forward_sender_name:
+                    if content:
+                        content += f"\n[Forwarded from {update.message.forward_sender_name}]"
+                    else:
+                        content = f"Forwarded from {update.message.forward_sender_name}"
+                    logger.info("Found forwarded message (new format)")
+            except Exception as e:
+                logger.warning(f"Could not extract forward info: {e}")
             
             # Log for debugging
-            logger.info(f"Photo message - Content length: {len(content)}, Has caption: {bool(update.message.caption)}, Is forwarded: {bool(update.message.forward_origin)}")
+            logger.info(f"Photo message - Content length: {len(content)}, Has caption: {bool(update.message.caption)}")
             
             message_data = {
                 "content": content,
@@ -292,7 +313,9 @@ Keep sending messages to build your knowledge base!
                 await update.message.reply_text("❌ Failed to store photo.")
             
         except Exception as e:
+            import traceback
             logger.error(f"Error handling photo: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             await update.message.reply_text("❌ Error processing photo.")
     
     async def handle_video_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -41,11 +41,14 @@ services:
     environment:
       CHROMA_HOST: 0.0.0.0
       CHROMA_PORT: 8000
+      CHROMA_SERVER_AUTHN_CREDENTIALS_FILE: ""
+      CHROMA_SERVER_AUTHN_PROVIDER: ""
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v2/heartbeat || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 40s
 
   # MinIO for file storage
   minio:
