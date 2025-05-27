@@ -21,15 +21,16 @@ This guide will walk you through setting up the DataVault project in Cursor IDE.
 Copy-Item -Path "backend/env.example" -Destination ".env"
 ```
 
-2. Edit the `.env` file to add your API keys:
+2. Add the API keys to your `.env` file:
 
 ```
-# Required for AI processing (ask for the key or use your own)
-OPENAI_API_KEY=your-openai-api-key-here
-
-# Optional for Telegram bot (ask for the key or use your own)
-TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+# API Keys (use the ones shared with you privately)
+OPENAI_API_KEY=shared_openai_api_key
+TELEGRAM_BOT_TOKEN=shared_telegram_bot_token
 ```
+
+> **IMPORTANT**: The API keys have been shared with you privately through direct message. 
+> Do NOT commit the `.env` file or share these keys publicly.
 
 ### Step 3: Set Up Python Environment
 
