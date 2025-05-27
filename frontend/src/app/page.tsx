@@ -70,7 +70,7 @@ export default function Dashboard() {
                 error={error}
               />
             ) : (
-              <Analytics messages={messages} />
+              <Analytics />
             )}
           </div>
         </main>

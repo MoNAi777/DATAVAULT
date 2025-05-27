@@ -44,7 +44,7 @@ services:
       CHROMA_SERVER_AUTHN_CREDENTIALS_FILE: ""
       CHROMA_SERVER_AUTHN_PROVIDER: ""
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v2/heartbeat || exit 1"]
+      test: ["CMD-SHELL", "nc -z localhost 8000 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -116,7 +116,7 @@ export function Sidebar({ messages, selectedCategory, setSelectedCategory }: Sid
 
         {/* Quick Stats */}
         <div className="glass border border-white/10 rounded-lg p-4 space-y-3">
-          <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2">
             <TrendingUp className="w-4 h-4 text-purple-400" />
             <h3 className="text-sm font-semibold text-white">Overview</h3>
           </div>
@@ -149,19 +149,19 @@ export function Sidebar({ messages, selectedCategory, setSelectedCategory }: Sid
             <Filter className="w-4 h-4 text-purple-400" />
             <h3 className="text-sm font-semibold text-white">Categories</h3>
             <span className="text-xs text-gray-400">({categoryStats.length})</span>
-          </div>
+        </div>
 
-          {/* All Messages */}
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={cn(
-              "w-full flex items-center justify-between p-3 rounded-lg transition-all duration-200",
-              selectedCategory === 'all'
-                ? "bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30"
-                : "hover:bg-white/5 border border-transparent"
-            )}
-          >
-            <div className="flex items-center space-x-3">
+        {/* All Messages */}
+        <button
+          onClick={() => setSelectedCategory('all')}
+          className={cn(
+            "w-full flex items-center justify-between p-3 rounded-lg transition-all duration-200",
+            selectedCategory === 'all'
+              ? "bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30"
+              : "hover:bg-white/5 border border-transparent"
+          )}
+        >
+          <div className="flex items-center space-x-3">
               <div className="w-6 h-6 bg-gradient-to-r from-purple-500 to-pink-500 rounded-md flex items-center justify-center">
                 <Hash className="w-3 h-3 text-white" />
               </div>
@@ -172,43 +172,43 @@ export function Sidebar({ messages, selectedCategory, setSelectedCategory }: Sid
                 ? messages.length 
                 : messages.filter(m => m.source_type === selectedSource).length
               }
-            </span>
-          </button>
+          </span>
+        </button>
 
-          {/* Category List */}
+        {/* Category List */}
           <div className="space-y-1 max-h-64 overflow-y-auto">
-            {categoryStats.map(({ category, count, sentiment }) => (
-              <button
-                key={category}
-                onClick={() => setSelectedCategory(category)}
-                className={cn(
+          {categoryStats.map(({ category, count, sentiment }) => (
+            <button
+              key={category}
+              onClick={() => setSelectedCategory(category)}
+              className={cn(
                   "w-full flex items-center justify-between p-2.5 rounded-lg transition-all duration-200 group",
-                  selectedCategory === category
-                    ? "bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30"
-                    : "hover:bg-white/5 border border-transparent"
-                )}
-              >
+                selectedCategory === category
+                  ? "bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30"
+                  : "hover:bg-white/5 border border-transparent"
+              )}
+            >
                 <div className="flex items-center space-x-2.5">
-                  <div className={cn(
+                <div className={cn(
                     "w-6 h-6 bg-gradient-to-r rounded-md flex items-center justify-center text-xs",
-                    `bg-gradient-to-r ${getCategoryColor(category)}`
-                  )}>
-                    {getCategoryIcon(category)}
-                  </div>
-                  <div className="text-left">
+                  `bg-gradient-to-r ${getCategoryColor(category)}`
+                )}>
+                  {getCategoryIcon(category)}
+                </div>
+                <div className="text-left">
                     <div className="text-sm text-white font-medium capitalize truncate max-w-24">
-                      {category.replace('-', ' ')}
-                    </div>
-                    <div className="text-xs text-gray-400">
+                    {category.replace('-', ' ')}
+                  </div>
+                  <div className="text-xs text-gray-400">
                       {sentiment > 0.2 ? '😊' : sentiment < -0.2 ? '😔' : '😐'} {sentiment.toFixed(1)}
                     </div>
                   </div>
                 </div>
                 <span className="text-xs text-gray-400 bg-white/10 px-2 py-1 rounded-full group-hover:bg-white/20 transition-colors">
-                  {count}
-                </span>
-              </button>
-            ))}
+                {count}
+              </span>
+            </button>
+          ))}
           </div>
         </div>
 
