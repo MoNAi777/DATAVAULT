@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Clock, User, Tag, MessageCircle, Bot, Smartphone, MessageSquare, Calendar, TrendingUp, ChevronDown, ChevronUp, ExternalLink, X, Copy, Share2, Download } from 'lucide-react'
 import { Message } from '@/types'
@@ -12,6 +12,12 @@ interface MessageGridProps {
   isLoading: boolean
   error: Error | null
 }
+
+// Helper function to detect RTL text (primarily for Hebrew and Arabic)
+const isRTL = (text: string) => {
+  const rtlChars = /[\u0591-\u07FF\u200F\u202B\u202E\uFB1D-\uFDFD\uFE70-\uFEFC]/;
+  return rtlChars.test(text);
+};
 
 // Helper function to convert URLs in text to clickable links
 const linkifyText = (text: string) => {
@@ -30,25 +36,30 @@ const linkifyText = (text: string) => {
   parts.forEach((part, i) => {
     // Add the text part
     if (part) {
-      result.push(part)
+      // Check if this part contains RTL text and add appropriate direction
+      const isRtlText = isRTL(part);
+      result.push(
+        <span key={`text-${i}`} dir={isRtlText ? 'rtl' : 'ltr'} style={{ display: 'inline-block' }}>
+          {part}
+        </span>
+      )
     }
     
     // Add the URL part (if exists)
     if (urls[i]) {
       // Ensure URL has proper protocol for href
       const url = urls[i].startsWith('http') ? urls[i] : `https://${urls[i]}`
-      const displayUrl = urls[i].length > 30 ? `${urls[i].substring(0, 27)}...` : urls[i]
       
       result.push(
         <a 
-          key={i} 
+          key={`link-${i}`} 
           href={url} 
           target="_blank" 
           rel="noopener noreferrer"
           className="text-blue-400 hover:underline inline-flex items-center"
           onClick={(e) => e.stopPropagation()}
         >
-          {displayUrl}
+          {urls[i]}
           <ExternalLink className="w-3 h-3 ml-1" />
         </a>
       )
@@ -85,6 +96,9 @@ const getSentimentLabel = (sentiment: number) => {
 const MessageModal = ({ message, onClose }: { message: Message | null, onClose: () => void }) => {
   if (!message) return null;
   
+  // Determine if the message content is RTL
+  const isRtlContent = isRTL(message.content);
+  
   return (
     <AnimatePresence>
       <motion.div 
@@ -102,7 +116,7 @@ const MessageModal = ({ message, onClose }: { message: Message | null, onClose: 
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-white/10 p-4 flex justify-between items-center">
+          <div className="sticky top-0 bg-gray-900/95 backdrop-blur-sm border-b border-white/10 p-4 flex justify-between items-center z-10">
             <div className="flex items-center space-x-3">
               {getSourceIcon(message.source_type)}
               <h3 className="text-lg font-semibold text-white">
@@ -111,7 +125,11 @@ const MessageModal = ({ message, onClose }: { message: Message | null, onClose: 
             </div>
             <div className="flex space-x-2">
               <button 
-                onClick={() => navigator.clipboard.writeText(message.content)}
+                onClick={() => {
+                  navigator.clipboard.writeText(message.content);
+                  // Show a toast or notification
+                  alert('Message copied to clipboard');
+                }}
                 className="p-2 rounded-full hover:bg-white/10 text-gray-400 hover:text-white"
                 title="Copy message"
               >
@@ -186,7 +204,10 @@ const MessageModal = ({ message, onClose }: { message: Message | null, onClose: 
                 <MessageSquare className="w-4 h-4 mr-2" /> 
                 Message Content
               </h4>
-              <div className="text-white text-base leading-relaxed whitespace-pre-wrap">
+              <div 
+                className="text-white text-base leading-relaxed whitespace-pre-wrap"
+                dir={isRtlContent ? 'rtl' : 'ltr'}
+              >
                 {linkifyText(message.content)}
               </div>
             </div>
@@ -198,7 +219,10 @@ const MessageModal = ({ message, onClose }: { message: Message | null, onClose: 
                   <Bot className="w-4 h-4 mr-2" /> 
                   AI Summary
                 </h4>
-                <div className="text-gray-200 text-base leading-relaxed">
+                <div 
+                  className="text-gray-200 text-base leading-relaxed"
+                  dir={isRTL(message.summary) ? 'rtl' : 'ltr'}
+                >
                   {linkifyText(message.summary)}
                 </div>
               </div>
@@ -245,6 +269,47 @@ const MessageModal = ({ message, onClose }: { message: Message | null, onClose: 
                 </div>
               )}
             </div>
+            
+            {/* File attachment if any */}
+            {message.file_path && (
+              <div className="bg-gray-800/30 rounded-xl p-6">
+                <h4 className="text-sm text-gray-400 mb-3 flex items-center">
+                  <Download className="w-4 h-4 mr-2" /> 
+                  Attachment
+                </h4>
+                <div className="flex items-center space-x-4">
+                  <div className="bg-gray-700 rounded-lg p-3">
+                    {message.file_type?.includes('image') ? (
+                      <img 
+                        src={`/api/files/${message.file_path.split('/').pop()}`} 
+                        alt="Attachment" 
+                        className="max-h-40 rounded"
+                      />
+                    ) : (
+                      <Download className="w-8 h-8 text-gray-400" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-white font-medium">
+                      {message.file_path.split('/').pop()}
+                    </div>
+                    <div className="text-sm text-gray-400">
+                      {message.file_type} • {(message.file_size || 0) / 1024 > 1024 
+                        ? `${((message.file_size || 0) / 1024 / 1024).toFixed(2)} MB` 
+                        : `${((message.file_size || 0) / 1024).toFixed(2)} KB`}
+                    </div>
+                    <a 
+                      href={`/api/files/${message.file_path.split('/').pop()}`}
+                      download
+                      className="inline-flex items-center mt-2 text-sm text-blue-400 hover:text-blue-300"
+                    >
+                      <Download className="w-4 h-4 mr-1" />
+                      Download
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </motion.div>
       </motion.div>
@@ -255,6 +320,11 @@ const MessageModal = ({ message, onClose }: { message: Message | null, onClose: 
 export function MessageGrid({ messages, isLoading, error }: MessageGridProps) {
   const [expandedMessages, setExpandedMessages] = useState<Set<number>>(new Set())
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
+
+  // Function to handle clicks on message cards
+  const handleMessageClick = (message: Message) => {
+    setSelectedMessage(message);
+  };
 
   const toggleMessageExpansion = (id: number) => {
     setExpandedMessages(prev => {
@@ -384,93 +454,80 @@ export function MessageGrid({ messages, isLoading, error }: MessageGridProps) {
 
             {/* Messages Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {dateMessages.map((message, index) => (
-        <motion.div
-          key={message.id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="glass border border-white/10 rounded-xl p-5 hover:border-purple-500/30 transition-all duration-300 group hover:scale-[1.02] hover:shadow-xl cursor-pointer"
-                  onClick={() => setSelectedMessage(message)}
-        >
-                  {/* Header with Source and Time */}
-                  <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center space-x-2">
-                      {getSourceIcon(message.source_type)}
-                      <span className="text-xs font-medium text-gray-300 capitalize">
-                        {message.source_type}
-                      </span>
-            </div>
-            <div className="flex items-center space-x-1 text-xs text-gray-400">
-              <Clock className="w-3 h-3" />
-                      <span>{new Date(message.timestamp).toLocaleTimeString('en-US', { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })}</span>
-            </div>
-          </div>
+              {dateMessages.map((message, index) => {
+                // Determine if message contains RTL text
+                const isRtlMessage = isRTL(message.content);
+                
+                return (
+                  <motion.div
+                    key={message.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="glass border border-white/10 rounded-xl p-5 hover:border-purple-500/30 transition-all duration-300 group hover:scale-[1.02] hover:shadow-xl cursor-pointer relative active:bg-purple-500/10"
+                    onClick={() => handleMessageClick(message)}
+                  >
+                    {/* Highlight badge to indicate clickable */}
+                    <div className="absolute -top-1 -right-1 bg-purple-500 rounded-full w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                  
+                    {/* View Details Button */}
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedMessage(message);
+                        }}
+                        className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 hover:text-white rounded-full p-1.5 flex items-center justify-center"
+                        title="View full message"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
 
-                  {/* Sender */}
-                  <div className="flex items-center space-x-2 mb-3">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm font-medium text-white truncate">
-                      {message.sender_name}
-                    </span>
-                  </div>
-
-          {/* Content */}
-          <div className="mb-4">
-                    <p className={cn(
-                      "text-gray-200 text-sm leading-relaxed",
-                      !expandedMessages.has(message.id) && "line-clamp-3"
-                    )}>
-              {linkifyText(message.content)}
-            </p>
-            {message.content.length > 150 && (
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation(); // Prevent opening modal when clicking the expand button
-                  toggleMessageExpansion(message.id);
-                }}
-                className="flex items-center text-xs text-purple-400 hover:text-purple-300 mt-2"
-              >
-                {expandedMessages.has(message.id) ? (
-                  <>
-                    <ChevronUp className="w-3 h-3 mr-1" />
-                    Show less
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="w-3 h-3 mr-1" />
-                    Show more
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-
-                  {/* AI Summary */}
-          {message.summary && message.summary !== message.content && (
-                    <div className="mb-4 p-3 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-lg border border-purple-500/20">
-                      <div className="flex items-center space-x-1 mb-1">
-                        <Bot className="w-3 h-3 text-purple-400" />
-                        <span className="text-xs font-medium text-purple-300">AI Summary</span>
+                    {/* Header with Source and Time */}
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center space-x-2">
+                        {getSourceIcon(message.source_type)}
+                        <span className="text-xs font-medium text-gray-300 capitalize">
+                          {message.source_type}
+                        </span>
                       </div>
+                      <div className="flex items-center space-x-1 text-xs text-gray-400">
+                        <Clock className="w-3 h-3" />
+                        <span>{new Date(message.timestamp).toLocaleTimeString('en-US', { 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        })}</span>
+                      </div>
+                    </div>
+
+                    {/* Sender */}
+                    <div className="flex items-center space-x-2 mb-3">
+                      <User className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm font-medium text-white truncate">
+                        {message.sender_name}
+                      </span>
+                    </div>
+
+                    {/* Content */}
+                    <div className="mb-4">
                       <p className={cn(
-                        "text-xs text-gray-300",
-                        !expandedMessages.has(message.id * -1) && "line-clamp-2"
-                      )}>
-                        {linkifyText(message.summary)}
+                        "text-gray-200 text-sm leading-relaxed",
+                        !expandedMessages.has(message.id) && "line-clamp-3"
+                      )}
+                      dir={isRtlMessage ? 'rtl' : 'ltr'}
+                      >
+                        {linkifyText(message.content)}
                       </p>
-                      {message.summary.length > 100 && (
+                      {message.content.length > 150 && (
                         <button 
                           onClick={(e) => {
                             e.stopPropagation(); // Prevent opening modal when clicking the expand button
-                            toggleMessageExpansion(message.id * -1);
+                            toggleMessageExpansion(message.id);
                           }}
-                          className="flex items-center text-xs text-purple-400 hover:text-purple-300 mt-1"
+                          className="flex items-center text-xs text-purple-400 hover:text-purple-300 mt-2"
                         >
-                          {expandedMessages.has(message.id * -1) ? (
+                          {expandedMessages.has(message.id) ? (
                             <>
                               <ChevronUp className="w-3 h-3 mr-1" />
                               Show less
@@ -483,76 +540,128 @@ export function MessageGrid({ messages, isLoading, error }: MessageGridProps) {
                           )}
                         </button>
                       )}
-            </div>
-          )}
+                    </div>
 
-          {/* Categories */}
-          {message.categories.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {message.categories.slice(0, 2).map((category) => (
-                <span
-                  key={category}
-                  className={cn(
-                    "inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium",
-                    `bg-gradient-to-r ${getCategoryColor(category)} text-white`
-                  )}
-                >
-                          <span className="text-xs">{getCategoryIcon(category)}</span>
-                  <span>{category.replace('-', ' ')}</span>
-                </span>
-              ))}
-                      {message.categories.length > 2 && (
-                        <span className="text-xs text-gray-400 px-2 py-1">
-                          +{message.categories.length - 2}
-                        </span>
-                      )}
-            </div>
-          )}
-
-          {/* Tags */}
-          {message.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {message.tags.slice(0, 2).map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex items-center space-x-1 px-2 py-1 bg-white/10 rounded-full text-xs text-gray-300"
-                >
-                          <Tag className="w-2 h-2" />
-                          <span className="truncate max-w-16">{tag}</span>
-                </span>
-              ))}
-                      {message.tags.length > 2 && (
-                        <span className="text-xs text-gray-400 px-2 py-1">
-                          +{message.tags.length - 2}
-                        </span>
-              )}
-            </div>
-          )}
-
-                  {/* Footer with Sentiment and Status */}
-                  <div className="flex items-center justify-between pt-3 border-t border-white/10">
-            <div className="flex items-center space-x-2">
-                      <div className={cn(
-                        "flex items-center space-x-1 px-2 py-1 rounded-full text-xs",
-                        getSentimentColor(message.sentiment)
-                      )}>
-                        <TrendingUp className="w-3 h-3" />
-                        <span>{getSentimentLabel(message.sentiment)}</span>
+                    {/* AI Summary */}
+                    {message.summary && message.summary !== message.content && (
+                      <div className="mb-4 p-3 bg-gradient-to-r from-purple-500/10 to-blue-500/10 rounded-lg border border-purple-500/20">
+                        <div className="flex items-center space-x-1 mb-1">
+                          <Bot className="w-3 h-3 text-purple-400" />
+                          <span className="text-xs font-medium text-purple-300">AI Summary</span>
+                        </div>
+                        <p className={cn(
+                          "text-xs text-gray-300",
+                          !expandedMessages.has(message.id * -1) && "line-clamp-2"
+                        )}
+                        dir={isRTL(message.summary) ? 'rtl' : 'ltr'}
+                        >
+                          {linkifyText(message.summary)}
+                        </p>
+                        {message.summary.length > 100 && (
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation(); // Prevent opening modal when clicking the expand button
+                              toggleMessageExpansion(message.id * -1);
+                            }}
+                            className="flex items-center text-xs text-purple-400 hover:text-purple-300 mt-1"
+                          >
+                            {expandedMessages.has(message.id * -1) ? (
+                              <>
+                                <ChevronUp className="w-3 h-3 mr-1" />
+                                Show less
+                              </>
+                            ) : (
+                              <>
+                                <ChevronDown className="w-3 h-3 mr-1" />
+                                Show more
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
-            </div>
-            
-                    <div className="flex items-center space-x-1">
-                      <div className={cn(
-                "w-2 h-2 rounded-full",
-                        message.has_embedding ? "bg-green-400" : "bg-yellow-400"
-                      )}></div>
-                      <span className="text-xs text-gray-400">
-                        {message.has_embedding ? 'Indexed' : 'Processing'}
-                      </span>
-            </div>
-          </div>
-        </motion.div>
-              ))}
+                    )}
+
+                    {/* Categories */}
+                    {message.categories.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {message.categories.slice(0, 2).map((category) => (
+                          <span
+                            key={category}
+                            className={cn(
+                              "inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium",
+                              `bg-gradient-to-r ${getCategoryColor(category)} text-white`
+                            )}
+                          >
+                            <span className="text-xs">{getCategoryIcon(category)}</span>
+                            <span>{category.replace('-', ' ')}</span>
+                          </span>
+                        ))}
+                        {message.categories.length > 2 && (
+                          <span className="text-xs text-gray-400 px-2 py-1">
+                            +{message.categories.length - 2}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Tags */}
+                    {message.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {message.tags.slice(0, 2).map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center space-x-1 px-2 py-1 bg-white/10 rounded-full text-xs text-gray-300"
+                          >
+                            <Tag className="w-2 h-2" />
+                            <span className="truncate max-w-16">{tag}</span>
+                          </span>
+                        ))}
+                        {message.tags.length > 2 && (
+                          <span className="text-xs text-gray-400 px-2 py-1">
+                            +{message.tags.length - 2}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Footer with Sentiment and Status */}
+                    <div className="flex items-center justify-between pt-3 border-t border-white/10">
+                      <div className="flex items-center space-x-2">
+                        <div className={cn(
+                          "flex items-center space-x-1 px-2 py-1 rounded-full text-xs",
+                          getSentimentColor(message.sentiment)
+                        )}>
+                          <TrendingUp className="w-3 h-3" />
+                          <span>{getSentimentLabel(message.sentiment)}</span>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center space-x-1">
+                        <div className={cn(
+                          "w-2 h-2 rounded-full",
+                          message.has_embedding ? "bg-green-400" : "bg-yellow-400"
+                        )}></div>
+                        <span className="text-xs text-gray-400">
+                          {message.has_embedding ? 'Indexed' : 'Processing'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* View Full Message Button */}
+                    <div className="mt-3 text-center">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedMessage(message);
+                        }}
+                        className="text-xs bg-gradient-to-r from-purple-500/20 to-blue-500/20 hover:from-purple-500/30 hover:to-blue-500/30 text-purple-300 hover:text-white py-1.5 px-3 rounded-full w-full transition-all duration-200"
+                      >
+                        View Full Message
+                      </button>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
       ))}
